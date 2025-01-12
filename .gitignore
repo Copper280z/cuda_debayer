@@ -1,0 +1,5 @@
+build/*
+*.ncu-rep
+*.fits
+*.png
+.cache/*

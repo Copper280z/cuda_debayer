@@ -1,0 +1,6 @@
+CompileFlags:
+  Remove:
+  - '-std=c++23'
+  Add:
+  - '-D__cpp_concepts=202002L'
+  - '-std=c++2b'
