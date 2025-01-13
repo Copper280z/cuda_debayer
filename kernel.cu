@@ -81,10 +81,10 @@ __global__ void demosaicBayer(const uchar1* bayer, uchar3* output, int width, in
     uint8_t r;
     uint8_t g;
     uint8_t b;
-
+    
     uint16_t tile[3][3];
     
-    if (x < (width-1) && y < (height-1) && x <= 1 && y <= 1) { // thread is not on the border of image
+    if (x < (width-1) && y < (height-1) && x >= 1 && y >= 1) { // thread is not on the border of image
         for (int i=-1; i<2; i++) {
             for (int j=-1; j<2; j++) {
                 tile[i+1][j+1] = bayer[AT(x+i,y+j)].x;
@@ -104,7 +104,8 @@ __global__ void demosaicBayer(const uchar1* bayer, uchar3* output, int width, in
             }
         }
     }
-    __syncthreads();
+    
+    // shift patterns so they match
     int x_pos = (x+x_shift) % 2;
     int y_pos = (y+y_shift) % 2;
     // Determine the color channel for this pixel in the Bayer pattern
@@ -126,11 +127,27 @@ __global__ void demosaicBayer(const uchar1* bayer, uchar3* output, int width, in
         r = (tile[0][0] + tile[0][2] + tile[2][0] + tile[2][2]) / 4;            // Average of corners
     }
 
-    int idx = y * width + x;
     // Store the resulting RGB values in the output image
+    int idx = y * width + x;
     output[idx].x = r;
     output[idx].y = g;
     output[idx].z = b;
+
+    // attempt at coalescing global writes
+    // it works, but it's slower than the naive write
+    // __shared__ uint8_t out[2][3*128];
+    // out[threadIdx.y][threadIdx.x*3] = r;
+    // out[threadIdx.y][threadIdx.x*3+1] = g;
+    // out[threadIdx.y][threadIdx.x*3+2] = b;
+    // __syncthreads();
+    // uint8_t *output_u8 = (uint8_t*) output;
+    // for (int i=threadIdx.y; i<2; i+=2) {
+    //     for (int j=threadIdx.x; j<(3*128); j+=128) {
+    //         int xt = blockIdx.x * blockDim.x ;
+    //         int yt = blockIdx.y * blockDim.y + i;
+    //         output_u8[ 3*AT(xt,yt)+j ] = out[i][j]; 
+    //     }
+    // }
 }
 // Host function to launch the kernel
 void demosaicImage(const unsigned char* bayerImage, unsigned char* outputImage, int width, int height, BayerPattern pattern) {
@@ -146,7 +163,7 @@ void demosaicImage(const unsigned char* bayerImage, unsigned char* outputImage, 
     cudaMemcpy(d_bayer, bayerImage, bayerSize, cudaMemcpyHostToDevice);
 
     // Configure block and grid sizes
-    dim3 blockSize(16, 16);
+    dim3 blockSize(256, 1);
     dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
 
     // Launch the kernel
